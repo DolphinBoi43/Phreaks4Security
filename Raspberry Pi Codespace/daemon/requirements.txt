@@ -1,0 +1,4 @@
+paho-mqtt
+gpiozero
+picamera2
+pyserial

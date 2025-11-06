@@ -1,0 +1,15 @@
+[Unit]
+Description=Phreaks4Security Event Daemon
+After=network-online.target mosquitto.service
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/phreaks4security/phreaks4d.py
+WorkingDirectory=/opt/phreaks4security
+Restart=on-failure
+User=pi
+Group=pi
+Environment=MQTT_HOST=localhost SER_DEV=/dev/ttyUSB0
+Environment=MEDIA_DIR=/var/lib/phreaks4security/media
+
+[Install]
+WantedBy=multi-user.target
