@@ -1,19 +1,58 @@
-import time, struct, serial
-SYNC=0xAA; VER=0x01
-def crc16(data, crc=0xFFFF):
-    for b in data:
-        crc ^= (b<<8)
-        for _ in range(8):
-            if crc & 0x8000: crc=((crc<<1)^0x1021)&0xFFFF
-            else: crc=(crc<<1)&0xFFFF
-    return crc
-def pack(msg_id, payload=b"", seq=0):
-    hdr=bytes([SYNC,VER,msg_id])+len(payload).to_bytes(2,'little')+bytes([seq])
-    c=crc16(hdr[1:]+payload).to_bytes(2,'little')
-    return hdr+payload+c
+import time, serial, sys
+from .util_proto import pack
+from .deframe import Deframer
+from pi.camera.capture import capture_clip
+
+MSG_CAMERA_EVENT   = 0x12
+MSG_CAMERA_TRIGGER = 0x40
+MSG_ACK            = 0x02
+
 def main():
-    ser=serial.Serial('/dev/ttyAMA0',115200,timeout=0.05)
+    try:
+        ser = serial.Serial('/dev/ttyAMA0', 115200, timeout=0.05)
+    except Exception as e:
+        print(f"[uart_bridge] Serial open failed: {e}", file=sys.stderr)
+        return
+
+    d = Deframer()
+    last_hb = time.time()
+    seq = 0
+
     while True:
-        time.sleep(0.5)
-if __name__=='__main__':
+        # Read and parse any incoming bytes
+        try:
+            data = ser.read(128)
+        except Exception as e:
+            print(f"[uart_bridge] Serial read error: {e}", file=sys.stderr)
+            time.sleep(0.5)
+            continue
+
+        for b in data:
+            out = d.feed(b)
+            if out:
+                msg_id, rxseq, payload = out
+                if msg_id == MSG_CAMERA_EVENT and len(payload)>=1:
+                    state = payload[0]
+                    if state == 1:
+                        path = capture_clip(5)
+                        print(f"[bridge] capture => {path or 'FAILED'}")
+                        try:
+                            ser.write(pack(MSG_CAMERA_TRIGGER, b"", seq & 0xFF))
+                            seq += 1
+                        except Exception as e:
+                            print(f"[uart_bridge] Serial write error: {e}", file=sys.stderr)
+                else:
+                    # ACK everything else for now
+                    try:
+                        ser.write(pack(MSG_ACK, b"", rxseq))
+                    except Exception as e:
+                        print(f"[uart_bridge] Serial write error: {e}", file=sys.stderr)
+
+        # Optional heartbeat/log throttle
+        if time.time() - last_hb > 5:
+            print("[bridge] alive")
+            last_hb = time.time()
+        time.sleep(0.02)
+
+if __name__ == '__main__':
     main()
