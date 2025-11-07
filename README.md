@@ -1,29 +1,18 @@
-# Phreaks4Security
-Home security with STM32 (sensors) + Raspberry Pi (camera/MQTT).
+# Home Security System
 
-## STM32 Quick Start
-1) CubeMX: enable FreeRTOS + USART2 @115200.
-2) Copy `Core/Src/app_freertos.c` and `Core/Inc/app_config.h` from this repo into your project.
-3) Flash. UART prints `doorbell_pressed` or `motion_detected` on events.
+- MCU-A (STM32L476): UART to Pi and to MCU-B.
+- MCU-B: actuators.
+- Pi: camera + motion sensor as primary trigger.
 
-## Raspberry Pi Quick Start
-```bash
-sudo apt update && sudo apt install -y python3-pip libcamera-tools mosquitto
-sudo usermod -aG video $USER
-sudo mkdir -p /opt/phreaks4security && sudo cp -r "Raspberry Pi Codespace/daemon"/* /opt/phreaks4security
-cd /opt/phreaks4security && sudo pip3 install -r requirements.txt
-sudo mkdir -p /var/lib/phreaks4security/media
-sudo cp systemd/phreaks4d.service /etc/systemd/system/
-sudo systemctl enable --now phreaks4d
+## Layout
+- firmware/mcu-a/stm32cube
+- firmware/mcu-b
+- firmware/common
+- pi/gateway, pi/camera
+- docs (protocol, wiring, diagrams)
 
-
-### 3) Fix CONTRIBUTING.md
-```bash
-cat > CONTRIBUTING.md <<'EOF'
-# Contributing
-- Branch names: feat/*, fix/*, chore/*, docs/*.
-- Conventional commits.
-- PR checklist:
-  - CI passes.
-  - Tested on hardware or include a simulation note.
-  - Update docs if behavior changes.
+## Quick start (Pi)
+```
+pip install pyserial
+python pi/gateway/gpio_motion.py
+```
