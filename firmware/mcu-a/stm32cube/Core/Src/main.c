@@ -18,12 +18,12 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include <stdio.h>
-#include <string.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -66,6 +66,13 @@ volatile float distance_cm = 0;
 volatile uint32_t ic_val1 = 0;
 volatile uint32_t ic_val2 = 0;
 volatile uint8_t is_first_captured = 0;
+volatile uint8_t alarm_force = 0;      // Set via UART: 1 = force ON, 0 = sensors control
+float distance_threshold_cm = 30.0f;   // Object closer than this => alarm
+uint32_t last_alarm_on_ms = 0;         // For optional hold time
+uint32_t alarm_auto_hold_ms = 3000;    // Keep ON for 3s after trigger (optional)
+
+/* USER CODE END PV */
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -78,6 +85,10 @@ static void MX_TIM3_Init(void);
 void UpdateReedSwitchStates(void);
 void HCSR04_Trigger(void);
 void SendStatusUART(void);
+
+static void Alarm_Set(uint8_t on);
+static bool IsAnyReedOpen(void);
+static void ProcessAlarm(void);
 /* USER CODE END PFP */
 
 /* USER CODE END PFP */
@@ -122,6 +133,11 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);  // Start Input Capture with interrupts
+  // Start UART RX (non-DMA, interrupt-based) to read single commands
+  HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+  // OPTIONAL: banner so you see something in PuTTY after reset
+  const char *banner = "Home-Security-System: UART online @ 115200 8-N-1\r\n";
+  HAL_UART_Transmit(&huart2, (uint8_t*)banner, (uint16_t)strlen(banner), 100);
 
   /* USER CODE END 2 */
 
@@ -141,6 +157,9 @@ int main(void)
 	    // Give time for the echo to arrive and the callback to compute distance_cm.
 	    // 60 ms covers up to ~10 m round-trip; adjust if you expect longer distances.
 	    HAL_Delay(60);
+
+	    // Decide and drive BigSound based on sensor states and UART command
+	    ProcessAlarm();
 
 	    // Transmit one status line over UART
 	    SendStatusUART();
@@ -372,6 +391,83 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+// BigSound is active-high: SET = ON, RESET = OFF.
+// If your hardware is active-low, invert the pin levels here.
+static void Alarm_Set(uint8_t on)
+{
+  HAL_GPIO_WritePin(BigSound_GPIO_Port, BigSound_Pin,
+                    on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+static bool IsAnyReedOpen(void)
+{
+  // Your code defines reedX_closed = 1 when GPIO is SET (closed), 0 when open.
+  // Alarm if ANY reed is open.
+  return (!reed1_closed) || (!reed2_closed) || (!reed3_closed) || (!reed4_closed);
+}
+
+static void ProcessAlarm(void)
+{
+  uint32_t now = HAL_GetTick();
+
+  // Sensor-based trigger:
+  // - any reed open
+  // - object closer than threshold (ignore bogus 0 distance)
+  bool sensor_trigger =
+      IsAnyReedOpen() ||
+      ((distance_cm > 0.0f) && (distance_cm <= distance_threshold_cm));
+
+  // Final decision: sensors OR forced-on via UART
+  bool alarm_on = sensor_trigger || (alarm_force != 0);
+
+  if (alarm_on)
+  {
+    Alarm_Set(1);
+    last_alarm_on_ms = now; // remember when it turned on
+  }
+  else
+  {
+    // Optional "hold" so the alarm stays on briefly after the trigger clears
+    if (alarm_auto_hold_ms == 0 || (now - last_alarm_on_ms) >= alarm_auto_hold_ms)
+    {
+      Alarm_Set(0);
+    }
+  }
+}
+
+// UART receive: simple command parser
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART2)
+  {
+    switch (rx_byte)
+    {
+      case 'A': case 'a':   // Force alarm ON
+      case '1': case '!':
+        alarm_force = 1;
+        break;
+
+      case 'C': case 'c':   // Clear forced alarm (back to sensor-driven)
+      case '0': case '.':
+        alarm_force = 0;
+        break;
+
+      // Optional: change threshold on the fly (examples)
+      case '+':  // increase threshold by 5 cm
+        distance_threshold_cm += 5.0f;
+        break;
+      case '-':  // decrease threshold by 5 cm (min 5 cm)
+        if (distance_threshold_cm > 5.0f) distance_threshold_cm -= 5.0f;
+        break;
+
+      default:
+        break;
+    }
+
+    // Re-arm RX for next byte
+    HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+  }
+}
 static inline char oc(int closed) { return closed ? 'C' : 'O'; } // C=Closed, O=Open
 
 void SendStatusUART(void)
