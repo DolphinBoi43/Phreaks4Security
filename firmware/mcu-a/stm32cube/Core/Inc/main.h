@@ -49,6 +49,8 @@ extern "C" {
 
 /* USER CODE END EM */
 
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -69,12 +71,8 @@ void Error_Handler(void);
 #define Tim3_GPIO_Port GPIOA
 #define TriggerUltra_Pin GPIO_PIN_7
 #define TriggerUltra_GPIO_Port GPIOA
-#define BigSound_Pin GPIO_PIN_2
-#define BigSound_GPIO_Port GPIOB
 #define Reed3_Pin GPIO_PIN_10
 #define Reed3_GPIO_Port GPIOB
-#define Reed4_Pin GPIO_PIN_8
-#define Reed4_GPIO_Port GPIOA
 #define TMS_Pin GPIO_PIN_13
 #define TMS_GPIO_Port GPIOA
 #define TCK_Pin GPIO_PIN_14
@@ -85,6 +83,8 @@ void Error_Handler(void);
 #define Reed2_GPIO_Port GPIOB
 #define Reed1_Pin GPIO_PIN_5
 #define Reed1_GPIO_Port GPIOB
+#define BigSound_Pin GPIO_PIN_6
+#define BigSound_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

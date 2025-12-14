@@ -43,6 +43,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart2;
 DMA_HandleTypeDef hdma_usart2_rx;
@@ -52,7 +53,7 @@ DMA_HandleTypeDef hdma_usart2_rx;
 int reed1_closed = 0;
 int reed2_closed = 0;
 int reed3_closed = 0;
-int reed4_closed = 0;
+//int reed4_closed = 0;
 
 // Global RX buffer
 uint8_t rx_byte;
@@ -67,11 +68,9 @@ volatile uint32_t ic_val1 = 0;
 volatile uint32_t ic_val2 = 0;
 volatile uint8_t is_first_captured = 0;
 volatile uint8_t alarm_force = 0;      // Set via UART: 1 = force ON, 0 = sensors control
-float distance_threshold_cm = 30.0f;   // Object closer than this => alarm
-uint32_t last_alarm_on_ms = 0;         // For optional hold time
+float distance_threshold_cm = 10.0f;   // Object closer than this => alarm
+uint32_t last_alarm_on_ms = 3000;         // For optional hold time
 uint32_t alarm_auto_hold_ms = 3000;    // Keep ON for 3s after trigger (optional)
-
-/* USER CODE END PV */
 
 /* USER CODE END PV */
 
@@ -81,6 +80,7 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 void UpdateReedSwitchStates(void);
 void HCSR04_Trigger(void);
@@ -89,8 +89,6 @@ void SendStatusUART(void);
 static void Alarm_Set(uint8_t on);
 static bool IsAnyReedOpen(void);
 static void ProcessAlarm(void);
-/* USER CODE END PFP */
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -130,6 +128,7 @@ int main(void)
   MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);  // Start Input Capture with interrupts
@@ -165,7 +164,7 @@ int main(void)
 	    SendStatusUART();
 
 	    // Send at ~4 Hz; adjust as needed
-	    HAL_Delay(190);
+	    HAL_Delay(160);
   }
   /* USER CODE END 3 */
 }
@@ -278,6 +277,57 @@ static void MX_TIM3_Init(void)
 }
 
 /**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 79;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 499;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+  HAL_TIM_MspPostInit(&htim4);
+
+
+    HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -349,9 +399,6 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, LD2_Pin|TriggerUltra_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(BigSound_GPIO_Port, BigSound_Pin, GPIO_PIN_RESET);
-
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
@@ -365,24 +412,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BigSound_Pin */
-  GPIO_InitStruct.Pin = BigSound_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(BigSound_GPIO_Port, &GPIO_InitStruct);
-
   /*Configure GPIO pins : Reed3_Pin Reed2_Pin Reed1_Pin */
   GPIO_InitStruct.Pin = Reed3_Pin|Reed2_Pin|Reed1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : Reed4_Pin */
-  GPIO_InitStruct.Pin = Reed4_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(Reed4_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -395,15 +429,16 @@ static void MX_GPIO_Init(void)
 // If your hardware is active-low, invert the pin levels here.
 static void Alarm_Set(uint8_t on)
 {
-  HAL_GPIO_WritePin(BigSound_GPIO_Port, BigSound_Pin,
-                    on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    // Drive PWM duty instead of GPIO. When ON: ~50% duty; OFF: 0% duty.
+    uint32_t arr = __HAL_TIM_GET_AUTORELOAD(&htim4);
+    uint32_t half = (arr + 1U) / 2U;
+    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, on ? half : 0U);
 }
-
 static bool IsAnyReedOpen(void)
 {
   // Your code defines reedX_closed = 1 when GPIO is SET (closed), 0 when open.
   // Alarm if ANY reed is open.
-  return (!reed1_closed) || (!reed2_closed) || (!reed3_closed) || (!reed4_closed);
+  return (!reed1_closed) || (!reed2_closed) || (!reed3_closed);
 }
 
 static void ProcessAlarm(void)
@@ -476,7 +511,7 @@ void SendStatusUART(void)
 
   // Compose: which reed is open/closed + current distance (cm)
   // Example: "R1:C R2:O R3:O R4:C | Dist: 23.5 cm\r\n"
-  int n = snprintf(tx_buf, sizeof(tx_buf), "R1:%c R2:%c R3:%c R4:%c | Dist: %.1f cm\r\n", oc(reed1_closed), oc(reed2_closed), oc(reed3_closed), oc(reed4_closed), distance_cm);
+  int n = snprintf(tx_buf, sizeof(tx_buf), "R1:%c R2:%c R3:%c | Dist: %.1f cm\r\n", oc(reed1_closed), oc(reed2_closed), oc(reed3_closed), distance_cm);
   if (n > 0)
   {
     HAL_UART_Transmit(&huart2, (uint8_t*)tx_buf, (uint16_t)n, 50); // blocking TX
@@ -530,6 +565,25 @@ void UpdateReedSwitchStates(void)
     reed4_closed = (HAL_GPIO_ReadPin(Reed4_GPIO_Port, Reed4_Pin) == GPIO_PIN_SET) ? 1 : 0;
 }
 
+
+static void BigSound_SelfTest_GPIO(void)
+{
+  // Fall-back self-test: drive PB6 (BigSound) as plain GPIO to generate a 500 Hz square wave for ~2 s.
+  // This helps verify wiring even if TIM4 PWM were misconfigured.
+  HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  GPIO_InitStruct.Pin = BigSound_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(BigSound_GPIO_Port, &GPIO_InitStruct);
+  for (int i = 0; i < 2000; ++i) {
+    HAL_GPIO_TogglePin(BigSound_GPIO_Port, BigSound_Pin);
+    HAL_Delay(1); // toggle every 1 ms -> ~500 Hz tone
+  }
+  // Restore PB6 to TIM4_CH1 AF so normal Alarm_Set() PWM works
+  HAL_TIM_MspPostInit(&htim4);
+}
 
 /* USER CODE END 4 */
 
